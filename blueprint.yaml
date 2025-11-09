@@ -4,16 +4,13 @@ blueprint:
     3-speed Duco + OpenAir valves (optional) + toilet boost + Free@home manual max.
     Fully graphical – add valves anytime.
   domain: automation
-  source_url: https://github.com/yourname/duco-ventilation-blueprint  # optional
   input:
-    # ── Duco Fan ─────────────────────────────────────
     duco_fan:
       name: Duco Silent Box
       selector:
         entity:
           domain: fan
 
-    # ── OpenAir Valves (optional – add later) ───────
     valve_living:
       name: OpenAir Valve – Living Room
       default: ""
@@ -43,7 +40,6 @@ blueprint:
           domain: cover
           multiple: false
 
-    # ── Sensors ─────────────────────────────────────
     hum_living:
       name: Humidity – Living (real-time)
       selector:
@@ -131,14 +127,12 @@ blueprint:
         entity:
           domain: binary_sensor
 
-    # ── Free@home Manual Max Toggle ─────────────────
     manual_max_boost:
       name: Free@home Max Speed Toggle
       selector:
         entity:
           domain: [switch, input_boolean]
 
-    # ── Thresholds ──────────────────────────────────
     hum_spike_up:
       name: Humidity spike to start
       default: 10
@@ -267,12 +261,10 @@ trigger:
 
 condition:
   - condition: template
-    value_template: >-
-      {{ is_state('input_select.ventilation_manual_mode', 'Auto') }}
+    value_template: "{{ is_state('input_select.ventilation_manual_mode', 'Auto') }}"
 
 action:
   - variables:
-      # Sensors
       h_liv:     "{{ states(!input hum_living) | float }}"
       h_liv_5m:  "{{ states(!input hum_living_5min) | float }}"
       h_liv_60m: "{{ states(!input hum_living_60min) | float }}"
@@ -287,7 +279,6 @@ action:
       co2_l:     "{{ states(!input co2_living) | float }}"
       co2_b:     "{{ states(!input co2_bedroom) | float if !input co2_bedroom else 0 }}"
 
-      # Spike & OK
       spike_living:   "{{ (h_liv - h_liv_5m) > !input hum_spike_up }}"
       spike_bathroom: "{{ (h_bath - h_bath_5m) > !input hum_spike_up }}"
       spike_bedroom:  "{{ (h_bed - h_bed_5m) > !input hum_spike_up }}"
@@ -313,7 +304,7 @@ action:
       timer_remaining: "{{ state_attr('timer.toilet_ventilation', 'remaining') | default('0:00:00') }}"
       toilet_boost_active: "{{ timer_state in ['active', 'paused'] and timer_remaining != '0:00:00' }}"
 
-  # ── FREE@HOME MANUAL MAX OVERRIDE (highest priority) ─────
+  # ── FREE@HOME MANUAL MAX OVERRIDE ─────────────────────
   - choose:
       - conditions:
           - "{{ is_state(!input manual_max_boost, 'on') }}"
@@ -334,177 +325,3 @@ action:
                 target:
                   entity_id:
                     - !input valve_living
-                    - !input valve_bathroom
-                    - !input valve_toilet
-                    - !input valve_washing
-          - service: input_boolean.turn_on
-            target:
-              entity_id: input_boolean.ventilation_enabled_triggered
-          - service: input_boolean.turn_off
-            target:
-              entity_id: input_boolean.ventilation_disabled_triggered
-          - service: persistent_notification.create
-            data:
-              title: "Ventilation MANUAL MAX"
-              message: "Free@home override – 100%"
-
-  # ── TOILET: 1 min → 5 min boost ───────────────────────
-  - choose:
-      - conditions: "{{ toilet_active and timer_state != 'active' }}"
-        sequence:
-          - service: timer.start
-            target:
-              entity_id: timer.toilet_ventilation
-  - choose:
-      - conditions: "{{ not toilet_active and timer_state == 'active' and timer_remaining > '0:05:00' }}"
-        sequence:
-          - service: timer.cancel
-            target:
-              entity_id: timer.toilet_ventilation
-  - choose:
-      - conditions:
-          - "{{ toilet_boost_active and is_state('input_boolean.ventilation_enabled_triggered', 'off') and is_state(!input manual_max_boost, 'off') }}"
-        sequence:
-          - service: fan.turn_on
-            target:
-              entity_id: !input duco_fan
-          - service: fan.set_percentage
-            data:
-              percentage: 100
-            target:
-              entity_id: !input duco_fan
-          - if:
-              - condition: template
-                value_template: "{{ valves_exist }}"
-            then:
-              - service: cover.close_cover
-                target:
-                  entity_id:
-                    - !input valve_living
-                    - !input valve_bathroom
-                    - !input valve_toilet
-                    - !input valve_washing
-          - service: input_boolean.turn_on
-            target:
-              entity_id: input_boolean.ventilation_enabled_triggered
-          - service: input_boolean.turn_off
-            target:
-              entity_id: input_boolean.ventilation_disabled_triggered
-          - service: persistent_notification.create
-            data:
-              title: "Ventilation TOILET"
-              message: "Max speed – clearing air"
-
-  # ── NORMAL LOGIC (only if no override) ───────────────
-  - choose:
-      - conditions:
-          - "{{ not toilet_boost_active and is_state(!input manual_max_boost, 'off') }}"
-          - "{{ is_state('input_select.ventilation_manual_mode', 'Auto') }}"
-        sequence:
-          - choose:
-              # HIGH
-              - conditions:
-                  - "{{ need_high }}"
-                  - "{{ is_state('input_boolean.ventilation_enabled_triggered', 'off') }}"
-                sequence:
-                  - service: fan.turn_on
-                    target:
-                      entity_id: !input duco_fan
-                  - service: fan.set_percentage
-                    data:
-                      percentage: !input speed_high
-                    target:
-                      entity_id: !input duco_fan
-                  - if:
-                      - condition: template
-                        value_template: "{{ valves_exist }}"
-                    then:
-                      - service: cover.open_cover
-                        target:
-                          entity_id:
-                            - !input valve_living
-                            - !input valve_bathroom
-                            - !input valve_toilet
-                            - !input valve_washing
-                  - service: input_boolean.turn_on
-                    target:
-                      entity_id: input_boolean.ventilation_enabled_triggered
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id: input_boolean.ventilation_disabled_triggered
-
-              # MEDIUM
-              - conditions:
-                  - "{{ need_medium }}"
-                  - "{{ is_state('input_boolean.ventilation_enabled_triggered', 'off') }}"
-                sequence:
-                  - service: fan.set_percentage
-                    data:
-                      percentage: !input speed_medium
-                    target:
-                      entity_id: !input duco_fan
-                  - if:
-                      - condition: template
-                        value_template: "{{ !input valve_bathroom != '' and (spike_bathroom or (h_bath - h_bath_5m) > (!input hum_spike_up * 0.6)) }}"
-                    then:
-                      - service: cover.open_cover
-                        target:
-                          entity_id: !input valve_bathroom
-                      - if:
-                          - condition: template
-                            value_template: "{{ !input valve_living != '' }}"
-                        then:
-                          - service: cover.close_cover
-                            target:
-                              entity_id: !input valve_living
-                  - if:
-                      - condition: template
-                        value_template: "{{ !input valve_living != '' and (co2_high or temp_active or spike_living or spike_bedroom) }}"
-                    then:
-                      - service: cover.open_cover
-                        target:
-                      entity_id: !input valve_living
-                      - if:
-                          - condition: template
-                            value_template: "{{ !input valve_bathroom != '' }}"
-                        then:
-                          - service: cover.close_cover
-                            target:
-                              entity_id: !input valve_bathroom
-                  - service: input_boolean.turn_on
-                    target:
-                      entity_id: input_boolean.ventilation_enabled_triggered
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id: input_boolean.ventilation_disabled_triggered
-
-              # LOW
-              - conditions:
-                  - "{{ all_ok }}"
-                  - "{{ is_state('input_boolean.ventilation_disabled_triggered', 'off') }}"
-                sequence:
-                  - service: fan.set_percentage
-                    data:
-                      percentage: !input speed_low
-                    target:
-                      entity_id: !input duco_fan
-                  - if:
-                      - condition: template
-                        value_template: "{{ valves_exist }}"
-                    then:
-                      - service: cover.close_cover
-                        target:
-                          entity_id:
-                            - !input valve_living
-                            - !input valve_bathroom
-                            - !input valve_toilet
-                            - !input valve_washing
-                  - service: input_boolean.turn_on
-                    target:
-                      entity_id: input_boolean.ventilation_disabled_triggered
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id: input_boolean.ventilation_enabled_triggered
-
-mode: single
-max_exceeded: silent
